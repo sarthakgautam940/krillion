@@ -278,6 +278,11 @@ svg {
   color: var(--fg);
 }
 
+.skip-btn {
+  margin-top: -8px;
+  color: var(--fg-2);
+}
+
 /* ---------- Front ---------- */
 
 .front {

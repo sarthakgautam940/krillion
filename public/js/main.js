@@ -69,7 +69,6 @@ let joinError = '';
 let hostTimer = 0;
 let healStop = null;
 let solo = false; // playing alone for points: this phone hosts itself, no relay
-let soloBest = 0; // the high score before this run
 
 function loadBank() {
   bankLoad ??= fetch('questions.txt', { cache: 'no-cache' })
@@ -175,7 +174,6 @@ async function startSolo() {
     return;
   }
   solo = true;
-  soloBest = Number(store.get(BEST_KEY)) || 0;
   relay = null;
   role = 'host';
   room = engine.emptyRoom();
@@ -282,6 +280,7 @@ const MOVES = {
   continue: (s, id, m, ctx) => engine.hurry(s, { id, kind: 'insane' }, ctx),
   lobby: (s, id, m, ctx) => engine.hurry(s, { id, kind: 'over' }, ctx),
   leave: (s, id) => engine.leave(s, { id }),
+  skip: (s, id, m, ctx) => engine.skip(s, { id }, ctx),
 };
 
 function hostMove(guest, m) {
@@ -440,8 +439,9 @@ function renderRoster(people) {
 /* ---------- Game ---------- */
 
 function renderGame() {
-  if (shownGame !== room.game) {
-    shownGame = room.game;
+  const gameKey = `${room.rid}:${room.game}`;
+  if (shownGame !== gameKey) {
+    shownGame = gameKey;
     $('seats').replaceChildren();
     $('board').replaceChildren();
     boardIds.clear();
@@ -452,7 +452,7 @@ function renderGame() {
   renderSeats();
   const progress = `Question ${room.qi + 1} of ${room.qCount}`;
   $('progress').textContent = room.pass > 0 ? `${progress}, overtime` : progress;
-  const key = `${room.game}:${room.played}`;
+  const key = `${room.rid}:${room.game}:${room.played}`;
   if (key !== questionKey) {
     questionKey = key;
     $('board').replaceChildren();
@@ -523,7 +523,8 @@ function recapReason(st) {
   const outNow = missed.filter((seat) => room.seats[seat]?.out && room.seats[seat]?.outAt === room.played);
   let text = '';
   if (room.mode === 'solo') {
-    if (st.reason === 'cleared') return 'You found every answer on the board.';
+    if (st.reason === 'cleared') return 'Board cleared. You found every answer.';
+    if (st.reason === 'skipped') return 'Moved on.';
     if (st.reason === 'long') return 'That is plenty for this one.';
     return 'Time\u2019s up.';
   }
@@ -563,7 +564,7 @@ function fillRecap(st) {
   });
   $('reveal').replaceChildren(...rows);
   const next = $('nextBtn');
-  next.textContent = st.final ? 'See who won' : 'Next question';
+  next.textContent = st.final ? (room.mode === 'solo' ? 'See your score' : 'See who won') : 'Next question';
   next.disabled = true;
 }
 
@@ -592,6 +593,8 @@ function onStage(st) {
   $('playArea').hidden = recap;
   $('recap').hidden = !recap;
   if (recap) fillRecap(st);
+  const soloTurn = room.mode === 'solo' && room.seats[0]?.id === me.id && (kind === 'turn' || kind === 'intro');
+  $('skipBtn').hidden = !soloTurn;
 
   const activeSeat = ['intro', 'turn', 'resolve', 'insane'].includes(kind) ? st.seat : -1;
   [...$('seats').children].forEach((node, i) => node.classList.toggle('is-active', i === activeSeat));
@@ -859,9 +862,17 @@ function exportText() {
   return lines.join('\n').trim();
 }
 
+/** The high score from before this run, so a new record still reads as new after a redraw. */
+let bestBefore = { key: '', best: 0 };
+function previousBest() {
+  const key = `${room.rid}:${room.game}`;
+  if (bestBefore.key !== key) bestBefore = { key, best: Number(store.get(BEST_KEY)) || 0 };
+  return bestBefore.best;
+}
+
 function renderSoloResults() {
   const p = room.seats[0];
-  const best = soloBest;
+  const best = previousBest();
   const record = p.score > best;
   if (record) store.set(BEST_KEY, p.score);
   $('winnerAvatar').hidden = true;
@@ -878,10 +889,10 @@ function renderSoloResults() {
       return li;
     }),
   );
-  $('againBtn').hidden = false;
+  $('againBtn').hidden = !solo;
   $('exportBtn').hidden = false;
-  $('lobbyBtn').textContent = 'Back to start';
-  $('lobbyBtn').className = 'btn btn--ghost btn--lg';
+  $('lobbyBtn').textContent = solo ? 'Back to start' : 'Back to the room';
+  $('lobbyBtn').className = solo ? 'btn btn--ghost btn--lg' : 'btn btn--primary btn--lg';
 }
 
 function renderResults() {
@@ -957,6 +968,7 @@ $('nextBtn').addEventListener('click', () => {
   act('next');
 });
 $('lobbyBtn').addEventListener('click', () => (solo ? exitSolo() : act('lobby')));
+$('skipBtn').addEventListener('click', () => act('skip'));
 $('soloBtn').addEventListener('click', () => {
   const name = engine.cleanName($('nameInput').value);
   if (name) {
