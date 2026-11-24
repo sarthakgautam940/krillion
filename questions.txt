@@ -1,0 +1,52 @@
+# Lore Check question bank
+#
+# Add a question:
+#   1. Write the question on its own line.
+#   2. Under it, one line per tier:      Tier: answer, answer, answer
+#   3. Spellings of the SAME answer:      Gaga / Gaga Pit / Gagaball
+#      (commas separate different answers, slashes join spellings of one answer)
+#
+# Tiers and points
+#   Plankton 10, Too Clever 15, Schooler 30, Rare 60, Deep Cut 85, One in a Krillion 100
+#   Insane 250   stops the game for the big reveal
+#
+# Extras
+#   Anything else: One in a Krillion   accepts any real looking answer at that tier
+#   Block: word, word                  never accepted ("profanity" and "religion" block whole lists)
+#
+# Capitals, apostrophes, "the", "Mr", "Mrs", plurals and small typos are handled for you.
+# Lines starting with # are notes and are ignored.
+
+
+Name places Yo unc hangs out
+Plankton: School / High School / Class / Classroom / Campus, Home / His House / House / His Room / Bedroom / Bed, Gym / Gymnasium / Weight Room / Planet Fitness, Library / Media Center / Libary, Park / Playground, Mall / SPTC / Short Pump Town Center / Short Pump Mall / Town Center, Basketball Court / Basketball / Bball Court / Court, Bathroom / Restroom / Toilet / Boys Bathroom, Car / His Car, Parking Lot / Parking Garage, McDonald's / McDonalds / McD / Mickey D's, Chick-fil-A / Chickfila / Chick Fil A / Chik Fil A / CFA, Discord / Discord Call / VC / Voice Chat, Outside / Outdoors / Touching Grass, Friend's House / Friends House, Bus / Bus Stop / School Bus
+Too Clever: Sciarrino / Scenario / Sceranno / Sciarino / Sciarrino's Room / Sciarrino's Class, AP Seminar / AP Sem / Seminar / Sem, AP Euro / Euro / AP European History / European History / APEH / Europe, Tung Tung Tung Sahur / Tung / Tung Tung / Tung Tung Tung / Sahur / Tung Sahur, Goon / Gooning / Goon Cave / Goon Room
+Schooler: Gaga / Gaga Pit / Gagaball / Gaga Ball / Gaga Court / The Pit / Ga Ga, SPMS / Short Pump Middle / Short Pump Middle School / Middle School, Football Field / Football / Field / Turf / Stadium / Bleachers, Pickleball / PB / Pickle Ball / Pickleball Court / Pickle, The Street / Street / Streets / Road / The Road, Sidewalk / Sidewalks / Curb, Hallway / Hallways / Hall / Halls, Pritchard / Pritchard's Room / Pritchard's Class / Prichard, SP / Short Pump / Shortpump
+Rare: Shalav's House / Shalav's / Shalav / Shalav House / Shalav's Place / Shalav's Crib / Shalav's Basement, Lunchroom / Lunch Room / Lunch / Cafeteria / Caf / Lunch Table / Commons, Short Pump Lunch / SP Lunch / SPMS Lunch / Short Pump Middle Lunch / Middle School Lunch
+Deep Cut: Lakey's / Lakey / Lakey's Room / Lakey's Class / Lakie / Laky, Fas Mart / Fasmart / Fast Mart / Gas Station / Gas, KD / K.D., Mr. Jackson's Room / Jackson's Room / Jackson / Jackson's Class, Human Geo / Human Geography / AP Human Geo / AP Human Geography / APHG / AP Human / Geo, Nash / Nash's Room / Nash's Class
+One in a Krillion: Hell / Heck / Hades / The Underworld
+
+
+Sar's current grades
+Plankton: F / Fail / Failing / Failed, C
+Schooler: B, D, F- / F minus
+Rare: C+ / C plus, B- / B minus, A- / A minus, D+ / D plus
+Deep Cut: B+ / B plus, D- / D minus
+One in a Krillion: Q, Drop / Dropped / Dropping / Dropped the Class / Withdraw / Withdrew / Withdrawn / W / Dropout
+
+
+Balaji scandal equipment
+Plankton: ChatGPT / Chat GPT / GPT / Chat / OpenAI / ChatGBT / Chad GPT, AI / A.I. / Artificial Intelligence / Chatbot / AI Chatbot, Chegg, Notes / Notebook / Notecards / Index Cards / Sticky Notes, Cheat Sheet / Cheatsheet / Crib Sheet / Cheat Card, Calculator / Calc / TI-84 / Graphing Calculator, Laptop / Computer / Chromebook / PC / MacBook, Textbook / Book / Textbooks, Smartwatch / Smart Watch / Apple Watch / Watch, Earbuds / AirPods / Air Pods / Headphones / Earpiece, Course Hero / CourseHero, Photomath / Photo Math, Brainly, Copilot / Microsoft Copilot / Co-pilot, Perplexity, Grok, DeepSeek / Deep Seek, Google Lens / Lens / Circle to Search, Answer Key / Answers / Key, Group Chat / GC / Groupchat / Texts / Texting / iMessage, Snapchat / Snap, Tablet / iPad, Wolfram Alpha / Wolfram, Mathway / Symbolab, Friend / Friends / Classmate / Classmates
+Too Clever: Studying / Study / Studied / Actually Studying, Learn / Learning / Learned / Learnt, Hard Work / Effort / Working Hard / Grinding, Brain / Brains / Big Brain / Intelligence / Smarts / IQ
+Schooler: AI Studio / Studio / Google AI Studio / Google Studio / AIStudio, Gemini / Google Gemini / Gemeni / Gemni, Photo / Photos / Picture / Pictures / Pic / Pics / Camera, Screenshot / Screenshots / Screen Shot / SS / Screen Grab / Snipping Tool, Alt+Tab / Alt Tab / Alt-Tab / Tab / Tabs / Switching Tabs / New Tab
+Rare: Meta Glasses / Meta Ray-Bans / Ray-Bans / Rayban / Smart Glasses / Glasses, Phone / Cell Phone / Cellphone / iPhone / Smartphone / Android, Claude / Claude AI / Anthropic, Google Search / Google / Googling / Search / Google It, Quizlet / Quizlit, Pocket / Pockets / His Pocket, Shalav
+Deep Cut: Gauth / Gauthmath / Gauth Math / Gauth AI, Studocu / Stu Docu / Studoc, Sar, Pranav, Printed FRQ / FRQ / FRQs / Printed FRQs / Printout / Print Out, One Pager / One-Pager / Onepager / 1 Pager / One Page
+One in a Krillion: Jo, 5 / Five
+
+
+Worst teachers
+Insane: Odell / O'Dell / Odel / Odelle / Grant Odell / Grand Odell, Nash, Sciarrino / Scenario / Sceranno / Sciarino / Scerano / Scarrino / Sharino, Grant / Grand, Lakey / Lakie / Laky / Lakee, Oliver / Olliver / Olivar
+Too Clever: Jackson / Jakson, Marquis / Marques / Marquise / Markis
+Schooler: Norman / Normen / Norm
+Anything else: One in a Krillion
+Block: profanity, religion, Ashwath, Balaji, Goon, PCY, Hitler, Jews, Eshan, Sar, Tung, Sahur, Jason, Diddy, Sid, Siddy, Hizz, Vedgay, Gay
