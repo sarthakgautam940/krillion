@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "outputDirectory": "public",
+  "functions": {
+    "api/room.js": {
+      "includeFiles": "questions.txt",
+      "maxDuration": 10
+    }
+  }
+}

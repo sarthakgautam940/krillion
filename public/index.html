@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Yo UnCrillion</title>
+  <meta name="description" content="Our live answer game. Join from your phone, name it before the bar runs out.">
+  <meta name="theme-color" content="#0c0d10">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <div class="app" id="app">
+
+    <main class="screen front" id="front">
+      <div class="front__col">
+        <header class="brand">
+          <h1 class="wordmark">Yo UnCrillion</h1>
+          <div class="meter" aria-hidden="true"><span></span><span></span><span></span></div>
+          <p class="lede">Name it before the bar runs out. Rarer answers score more.</p>
+        </header>
+
+        <p class="notice" id="notice" hidden></p>
+
+        <form class="join" id="joinForm" autocomplete="off" novalidate>
+          <label class="sr-only" for="nameInput">Your name</label>
+          <input class="text-input" id="nameInput" type="text" maxlength="16" placeholder="Your name"
+                 autocomplete="nickname" autocapitalize="words" spellcheck="false" enterkeyhint="go">
+          <button class="btn btn--primary" id="joinBtn" type="submit">Join</button>
+          <p class="form-error" id="joinError" role="alert"></p>
+        </form>
+
+        <section class="room" id="roomSection" aria-labelledby="roomTitle">
+          <h2 class="room__title" id="roomTitle">In the room <span class="room__count" id="roomCount"></span></h2>
+          <ul class="roster" id="roster"></ul>
+          <p class="room__empty" id="roomEmpty">Nobody is here yet.</p>
+        </section>
+
+        <div class="front__actions" id="lobbyActions" hidden>
+          <button class="btn btn--primary btn--lg" id="startBtn" type="button">Start game</button>
+          <button class="btn-text" id="leaveBtn" type="button">Leave the room</button>
+        </div>
+
+        <button class="btn btn--ghost btn--lg" id="watchBtn" type="button" hidden>Watch the game</button>
+      </div>
+    </main>
+
+    <main class="screen game" id="game" hidden>
+      <header class="topbar">
+        <span class="wordmark wordmark--sm">Yo UnCrillion</span>
+        <span class="topbar__progress" id="progress"></span>
+        <div class="topbar__end">
+          <span class="conn" id="conn" hidden>Reconnecting</span>
+          <button class="icon-btn" id="soundBtn" type="button" aria-label="Sound" aria-pressed="true">
+            <svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+            <svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="seats" id="seats" aria-label="Players"></section>
+
+      <section class="stage" id="stage">
+        <h2 class="question" id="question"></h2>
+
+        <div class="timer" id="timer">
+          <div class="timer__track"><div class="timer__fill" id="timerFill"></div></div>
+          <span class="timer__num" id="timerNum"></span>
+        </div>
+
+        <div class="play" id="playArea">
+          <div class="turn" id="turn" aria-live="polite">
+            <span class="avatar" id="turnAvatar" hidden></span>
+            <span class="turn__name" id="turnName"></span>
+          </div>
+
+          <form class="answer" id="answerForm" autocomplete="off">
+            <label class="sr-only" for="answer">Your answer</label>
+            <input class="answer__input" id="answer" type="text" maxlength="48" placeholder="Type an answer"
+                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send" disabled>
+            <button class="answer__send" id="sendBtn" type="submit" aria-label="Submit answer" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+            </button>
+            <div class="stamp" id="stamp" aria-hidden="true"></div>
+          </form>
+
+          <p class="feedback" id="feedback" role="status" aria-live="polite"></p>
+
+          <ul class="board" id="board" aria-label="Answers found"></ul>
+        </div>
+
+        <div class="recap" id="recap" hidden>
+          <p class="recap__reason" id="recapReason"></p>
+          <button class="btn btn--primary btn--lg" id="nextBtn" type="button">Next question</button>
+          <div class="reveal" id="reveal"></div>
+        </div>
+      </section>
+    </main>
+
+    <main class="screen results" id="results" hidden>
+      <div class="results__col">
+        <header class="results__head">
+          <span class="avatar avatar--xl" id="winnerAvatar"></span>
+          <h1 class="results__title" id="winnerTitle"></h1>
+          <p class="results__sub" id="winnerSub"></p>
+        </header>
+        <ol class="standings" id="standings"></ol>
+        <button class="btn btn--primary btn--lg" id="lobbyBtn" type="button">Back to the room</button>
+      </div>
+    </main>
+  </div>
+
+  <div class="insane" id="insane" hidden>
+    <div class="insane__bg"></div>
+    <div class="insane__rays" aria-hidden="true"><svg id="insaneRays" viewBox="-100 -100 200 200"></svg></div>
+    <div class="badge" id="insaneBadge" aria-hidden="true">
+      <svg viewBox="-60 -60 120 120">
+        <g class="badge__half"><path d="M0 -52 L0 52 L-52 0 Z"/></g>
+        <g class="badge__half"><path d="M0 -52 L52 0 L0 52 Z"/></g>
+        <g class="badge__mark"><rect x="-6" y="-30" width="12" height="38" rx="3"/><rect x="-6" y="15" width="12" height="12" rx="3"/></g>
+      </svg>
+    </div>
+    <div class="insane__stage" role="dialog" aria-modal="true" aria-labelledby="insaneTitle">
+      <h2 class="insane__title" id="insaneTitle" aria-label="Insane answer"></h2>
+      <p class="insane__answer" id="insaneAnswer"></p>
+      <p class="insane__meta"><span class="avatar" id="insaneAvatar"></span><span id="insaneBy"></span><span class="insane__pts" id="insanePts"></span></p>
+      <button class="btn btn--light btn--lg insane__go" id="insaneGo" type="button">Continue</button>
+    </div>
+    <div class="insane__flash" id="insaneFlash"></div>
+  </div>
+
+  <canvas class="fx" id="fx" aria-hidden="true"></canvas>
+</body>
+</html>

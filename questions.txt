@@ -1,4 +1,4 @@
-# Lore Check question bank
+# Yo UnCrillion question bank
 #
 # Add a question:
 #   1. Write the question on its own line.
@@ -45,7 +45,7 @@ One in a Krillion: Jo, 5 / Five
 
 
 Worst teachers
-Insane: Odell / O'Dell / Odel / Odelle / Grant Odell / Grand Odell, Nash, Sciarrino / Scenario / Sceranno / Sciarino / Scerano / Scarrino / Sharino, Grant / Grand, Lakey / Lakie / Laky / Lakee, Oliver / Olliver / Olivar
+Insane: Odell / O'Dell / Odel / Odelle / Grant / Grand / Grant Odell / Grand Odell, Nash, Sciarrino / Scenario / Sceranno / Sciarino / Scerano / Scarrino / Sharino, Lakey / Lakie / Laky / Lakee, Oliver / Olliver / Olivar
 Too Clever: Jackson / Jakson, Marquis / Marques / Marquise / Markis
 Schooler: Norman / Normen / Norm
 Anything else: One in a Krillion
