@@ -1,39 +1,31 @@
 # Yo UnCrillion
 
-Our live answer game. Everyone opens the link on their own phone, types their name, and lands in the same room. Once everyone is in, anyone taps Start and the whole room plays through the questions together.
+Our live answer game. Open the link, type your name, and you are in the room. When everyone is in, anyone taps Start.
 
-## How a game goes
+There is no server and nothing to set up. Phones talk through public MQTT relays, the same way spelling-race does. The first player in the room hosts: their phone runs the game and every other phone follows it. If the host leaves, the next player takes over and the game carries on.
 
-- Players take turns. The bar drains from blue to yellow to red. Run out and you lose one of your two hearts.
-- Every turn needs a new answer. Wrong or repeated answers just cost time, and everyone sees them.
-- A question ends when every answer has been found, after three full laps, or when the turn comes back around to someone who already missed it. That player starts the next question.
-- Lose every heart and you are out. Highest score at the end wins.
-- An insane answer slows the whole room down and plays the full screen reveal on every phone.
+## The live room
 
-| Rarity | Points |
-| --- | --- |
-| Plankton | 10 |
-| Too Clever | 15 |
-| Schooler | 30 |
-| Rare | 60 |
-| Deep Cut | 85 |
-| One in a Krillion | 100 |
-| Insane | 250 |
+- Everyone starts with two hearts. Players take turns in a circle.
+- It is you against the timer. Wrong guesses cost nothing. If the bar runs out before you give an accepted answer, you lose a heart.
+- A question ends at the end of a circle in which anyone ran out of time, so nobody gets an extra turn. It also ends when every answer has been found, or when a new circle would start with fewer answers left than players.
+- The next question starts with the next player in line. Players with no hearts left are out and skipped.
+- The last one alive wins. If the questions run out first, they start over in overtime with shorter turns.
+- Rarity is just for show here. An insane answer slows the room down and plays the full reveal on every phone.
+- A phone that drops is skipped until it comes back. Gone for 45 seconds mid game and that player is out.
 
-## One time setup on Vercel
+## Solo
 
-The room lives in a small Redis database, so phones can share it.
+Tap Play solo on the front screen.
 
-1. Open the project in Vercel and go to **Storage**.
-2. Choose **Create Database**, then **Upstash for Redis**, on the free plan.
-3. Connect it to this project for all environments.
-4. Redeploy, or push any commit.
-
-If the database is missing, the site says so instead of letting people join.
+- Every accepted answer resets your timer. When time runs out, the next question starts. A cleared board moves on by itself.
+- Points by rarity: Plankton 10, Too Clever 15, Schooler 30, Rare 60, Deep Cut 85, One in a Krillion 100, Insane 250.
+- After all four questions you see your score and your high score on that phone.
+- Copy my answers puts everything you typed on your clipboard, grouped by question, including the answers that were not on the board. Paste it to Claude to grow the bank.
 
 ## Adding questions
 
-Everything lives in [`questions.txt`](questions.txt). It is read by the server only, so players cannot peek at the answers. Edit it on GitHub, commit, and Vercel redeploys.
+Everything lives in [`public/questions.txt`](public/questions.txt). Edit it on GitHub, commit, and Vercel redeploys.
 
 ```text
 Worst cafeteria food
@@ -56,16 +48,17 @@ One in a Krillion: The Milk
 npm run dev
 ```
 
-Open http://localhost:3000 in a few tabs or on phones on the same wifi. Without database credentials the room lives in memory, which is fine for testing.
+Open http://localhost:3000. To test the room without the public relays, run any MQTT broker that accepts WebSockets and add `?broker=ws://localhost:9001` to the address. `?fast=1` shortens every timer for testing, and `?debug=1` logs what the relay is doing.
 
 ```bash
 npm test
 ```
 
-## How it fits together
+## Files
 
-- `public/` is the site every phone loads
-- `api/room.js` is the one server function: phones poll it about once a second and send moves to it
-- `lib/engine.js` holds the rules: turns, hearts, timers and when a question ends
-- `lib/bank.js` reads `questions.txt` and judges answers
-- `lib/store.js` saves the room to Redis with a version check, so two phones can never overwrite each other
+- `public/js/engine.js` holds the rules: turns, circles, hearts, solo scoring and when a question ends
+- `public/js/relay.js` is the connection layer, ported from spelling-race
+- `public/js/main.js` joins the room, hosts when it is this phone's turn to, and draws everything
+- `public/js/bank.js` reads `questions.txt` and judges answers
+- `public/js/filters.js` blocks words and spots keyboard mashing
+- `public/js/insane.js` is the slow motion insane reveal

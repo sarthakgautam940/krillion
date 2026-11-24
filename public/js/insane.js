@@ -29,11 +29,11 @@ let current = null;
 
 /**
  * Play the moment. Returns a handle whose close() fades it out.
- *   answer         what was typed            player  { name, initials, color }
+ *   answer         what was typed            player  { name, initials, color }, who found it
  *   origin         [x, y] the answer box     scene   the game screen to slow down
  *   canContinueAt  ms from now when Continue may be pressed
  */
-export function playInsane({ answer, player, points, fx, sound, onContinue, origin, scene, canContinueAt = 4000 }) {
+export function playInsane({ answer, player, fx, sound, onContinue, origin, scene, canContinueAt = 4000 }) {
   current?.close(true);
   const root = $('insane');
   const reduced = reducedMotion();
@@ -102,7 +102,6 @@ export function playInsane({ answer, player, points, fx, sound, onContinue, orig
     const av = $('insaneAvatar');
     av.textContent = player.initials;
     av.style.setProperty('--c', `var(--p${player.color + 1})`);
-    $('insanePts').textContent = '+0';
     const title = $('insaneTitle');
     title.replaceChildren(
       ...'INSANE ANSWER'.split(' ').map((word) => {
@@ -178,7 +177,7 @@ export function playInsane({ answer, player, points, fx, sound, onContinue, orig
       navigator.vibrate?.(200);
     });
 
-    // 5. The title stamps in, then the answer, the player and the points.
+    // 5. The title stamps in, then the answer and who found it.
     title.querySelectorAll('.ch').forEach((ch, i) => {
       ch.animate(
         [
@@ -198,16 +197,7 @@ export function playInsane({ answer, player, points, fx, sound, onContinue, orig
       { duration: 420, delay: R(2420), easing: 'cubic-bezier(.2,.9,.3,1.2)', fill },
     );
     root.querySelector('.insane__meta').animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 320, delay: R(2750), fill });
-    later(R(2800), () => {
-      const t0 = performance.now();
-      const count = (now) => {
-        const k = Math.min(1, (now - t0) / 650);
-        $('insanePts').textContent = `+${Math.round(points * (1 - (1 - k) ** 3))}`;
-        if (k < 1 && !root.hidden) requestAnimationFrame(count);
-      };
-      requestAnimationFrame(count);
-      sound.correct(6);
-    });
+    later(R(2800), () => sound.correct(6));
     go.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 300, delay: Math.max(0, unlock - slow), fill });
   }
 

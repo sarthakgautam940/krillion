@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Yo UnCrillion</title>
-  <meta name="description" content="Our live answer game. Join from your phone, name it before the bar runs out.">
+  <meta name="description" content="Our live answer game. Join from your phone and beat the timer. Last one alive wins.">
   <meta name="theme-color" content="#0c0d10">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -21,7 +21,7 @@
         <header class="brand">
           <h1 class="wordmark">Yo UnCrillion</h1>
           <div class="meter" aria-hidden="true"><span></span><span></span><span></span></div>
-          <p class="lede">Name it before the bar runs out. Rarer answers score more.</p>
+          <p class="lede">Name an answer before the bar runs out. Run out and you lose a heart. Last one alive wins.</p>
         </header>
 
         <p class="notice" id="notice" hidden></p>
@@ -34,6 +34,8 @@
           <p class="form-error" id="joinError" role="alert"></p>
         </form>
 
+        <button class="btn btn--ghost btn--lg" id="soloBtn" type="button">Play solo</button>
+
         <section class="room" id="roomSection" aria-labelledby="roomTitle">
           <h2 class="room__title" id="roomTitle">In the room <span class="room__count" id="roomCount"></span></h2>
           <ul class="roster" id="roster"></ul>
@@ -45,7 +47,6 @@
           <button class="btn-text" id="leaveBtn" type="button">Leave the room</button>
         </div>
 
-        <button class="btn btn--ghost btn--lg" id="watchBtn" type="button" hidden>Watch the game</button>
       </div>
     </main>
 
@@ -109,7 +110,13 @@
           <p class="results__sub" id="winnerSub"></p>
         </header>
         <ol class="standings" id="standings"></ol>
-        <button class="btn btn--primary btn--lg" id="lobbyBtn" type="button">Back to the room</button>
+        <div class="results__actions">
+          <button class="btn btn--primary btn--lg" id="againBtn" type="button" hidden>Play again</button>
+          <button class="btn btn--ghost btn--lg" id="exportBtn" type="button" hidden>Copy my answers</button>
+          <p class="export-note" id="exportNote" role="status"></p>
+          <textarea class="export-text" id="exportText" readonly hidden aria-label="Your answers"></textarea>
+          <button class="btn btn--primary btn--lg" id="lobbyBtn" type="button">Back to the room</button>
+        </div>
       </div>
     </main>
   </div>
@@ -127,7 +134,7 @@
     <div class="insane__stage" role="dialog" aria-modal="true" aria-labelledby="insaneTitle">
       <h2 class="insane__title" id="insaneTitle" aria-label="Insane answer"></h2>
       <p class="insane__answer" id="insaneAnswer"></p>
-      <p class="insane__meta"><span class="avatar" id="insaneAvatar"></span><span id="insaneBy"></span><span class="insane__pts" id="insanePts"></span></p>
+      <p class="insane__meta"><span class="avatar" id="insaneAvatar"></span><span id="insaneBy"></span></p>
       <button class="btn btn--light btn--lg insane__go" id="insaneGo" type="button">Continue</button>
     </div>
     <div class="insane__flash" id="insaneFlash"></div>

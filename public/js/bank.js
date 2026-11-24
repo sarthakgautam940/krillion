@@ -2,6 +2,7 @@
 import { keyOf, squash, distance, prettify } from './text.js';
 import { buildBlock, isBlocked, gibberishReason } from './filters.js';
 
+// In the live room rarity is flavor: last one alive wins. Points only count in solo.
 export const TIERS = [
   { id: 'plankton', name: 'Plankton', points: 10 },
   { id: 'clever', name: 'Too Clever', points: 15 },

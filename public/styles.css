@@ -309,9 +309,13 @@ svg {
 
 .notice {
   margin: 0;
-  color: var(--fg);
+  color: var(--fg-2);
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
+}
+
+.notice.is-error {
+  color: var(--t-red);
 }
 
 .join {
@@ -553,12 +557,6 @@ svg {
   color: var(--fg);
 }
 
-.seat__line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .hearts {
   display: flex;
   gap: 2px;
@@ -580,15 +578,21 @@ svg {
 }
 
 .seat__score {
-  display: inline-block;
-  min-width: 2ch;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 
 .seat.is-out {
   opacity: 0.35;
+}
+
+.seat.is-away .avatar--seat {
+  opacity: 0.45;
+}
+
+.seat.is-away .seat__name {
+  color: var(--fg-3);
 }
 
 .stage {
@@ -760,6 +764,11 @@ svg {
   stroke-linejoin: round;
 }
 
+.stamp__pts {
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
 .stamp {
   position: absolute;
   left: 50%;
@@ -777,11 +786,6 @@ svg {
   font-stretch: 125%;
   letter-spacing: -0.01em;
   text-shadow: 0 3px 0 var(--bg);
-}
-
-.stamp__pts {
-  color: var(--fg);
-  font-variant-numeric: tabular-nums;
 }
 
 .feedback {
@@ -831,12 +835,6 @@ svg {
 .found__label {
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.found__pts {
-  opacity: 0.65;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
 }
 
 .recap {
@@ -1006,10 +1004,79 @@ svg {
   text-overflow: ellipsis;
 }
 
-.standing__score {
-  font-size: 22px;
+.results__actions {
+  display: grid;
+  gap: 10px;
+}
+
+.export-note {
+  margin: 0;
+  text-align: center;
+  color: var(--fg-2);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.export-note:empty {
+  display: none;
+}
+
+.export-text {
+  width: 100%;
+  min-height: 180px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.solo-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.solo-row__q {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.solo-row__prompt {
+  font-size: 16px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.solo-row__meta {
+  color: var(--fg-2);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.solo-row__pts {
+  font-size: 20px;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
+}
+
+.standing__status {
+  color: var(--fg-2);
+  font-size: 14px;
+  font-weight: 800;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.standing.is-me .standing__status,
+.standing:first-child .standing__status {
+  color: var(--fg);
 }
 
 /* ---------- Insane answer ---------- */
@@ -1142,11 +1209,6 @@ svg {
   gap: 10px;
   font-size: 19px;
   font-weight: 800;
-}
-
-.insane__pts {
-  font-variant-numeric: tabular-nums;
-  font-stretch: 112%;
 }
 
 .insane__go {

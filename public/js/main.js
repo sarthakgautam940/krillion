@@ -1,9 +1,21 @@
-// Draws the room. The server decides everything; this file turns its state and events into
-// screens, timers, sounds and animation.
+// Joins the room through the relay and draws it. Whichever phone is the host runs the rules
+// (engine.js) and broadcasts the room; every phone, the host included, draws from that room.
 import { Sound } from './audio.js';
 import { FX, shake } from './fx.js';
 import { playInsane } from './insane.js';
-import { loadMe, saveMe, serverNow, connect } from './net.js';
+import { connectRelay, Timers } from './relay.js';
+import { parseBank, TIERS } from './bank.js';
+import * as engine from './engine.js';
+
+const ROOM = 'main-room';
+const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
+const qs = new URLSearchParams(location.search);
+const brokers = qs.get('broker') ? qs.get('broker').split(',') : BROKERS; // ?broker=ws://localhost:9001 for testing
+const ME_KEY = 'yuc.me';
+if (qs.has('fast')) engine.speedUp(0.3); // test switch, like spelling-race's
+const SOUND_KEY = 'yuc.sound';
+const BEST_KEY = 'yuc.best';
+const HEART = 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z';
 
 const $ = (id) => document.getElementById(id);
 const make = (tag, className, text) => {
@@ -14,39 +26,312 @@ const make = (tag, className, text) => {
 };
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const tierColor = (id) => css(`--tier-${id}`);
-const HEART = 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z';
-const SOUND_KEY = 'yuc.sound';
+const tierName = (id) => TIERS.find((t) => t.id === id)?.name ?? id;
+const tierRank = (id) => Math.max(0, TIERS.findIndex((t) => t.id === id));
+const store = {
+  get(key) {
+    try {
+      return JSON.parse(localStorage.getItem(key));
+    } catch {
+      return null;
+    }
+  },
+  set(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      /* not remembered, that is fine */
+    }
+  },
+};
 
-const me = loadMe();
-const sound = new Sound(readSoundPref());
+/* ---------- Who am I ---------- */
+
+const makeId = () =>
+  crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+const me = { id: makeId(), name: '', active: false, ...store.get(ME_KEY) };
+const saveMe = () => store.set(ME_KEY, me);
+saveMe();
+
+const sound = new Sound(store.get(SOUND_KEY) !== false);
 const fx = new FX($('fx'));
 
-let room = null; // latest room from the server
-let here = new Set(); // ids present, for the lobby list
-let status = 'ok'; // ok | offline | setup
-let watching = false;
+/* ---------- Connection ---------- */
+
+let relay = null;
+let role = null; // 'host' | 'guest' | null
+let status = 'idle'; // idle | connecting | online | offline
+let room = null; // the room as this phone knows it
+let carry = null; // the last room seen, kept so this phone can carry on if it becomes host
+let bank = null;
+let bankLoad = null;
+let joinError = '';
+let hostTimer = 0;
+let healStop = null;
+let solo = false; // playing alone for points: this phone hosts itself, no relay
+let soloBest = 0; // the high score before this run
+
+function loadBank() {
+  bankLoad ??= fetch('questions.txt', { cache: 'no-cache' })
+    .then((res) => {
+      if (!res.ok) throw new Error(`questions.txt ${res.status}`);
+      return res.text();
+    })
+    .then((text) => {
+      const { questions, warnings } = parseBank(text);
+      warnings.forEach((w) => console.warn(`questions.txt: ${w}`));
+      bank = questions;
+      return questions;
+    })
+    .catch((err) => {
+      bankLoad = null;
+      throw err;
+    });
+  return bankLoad;
+}
+
+const clock = () => (role === 'host' || !relay ? Date.now() : relay.hostNow());
+
+async function joinRoom(name) {
+  me.name = name;
+  me.active = true;
+  saveMe();
+  joinError = '';
+  status = 'connecting';
+  render();
+  try {
+    await loadBank();
+  } catch {
+    me.active = false;
+    saveMe();
+    status = 'idle';
+    joinError = 'Could not load the questions. Check your connection and try again.';
+    render();
+    return;
+  }
+  relay?.stop();
+  role = null;
+  relay = connectRelay({
+    room: ROOM,
+    name,
+    pid: me.id,
+    brokers,
+    max: engine.RULES.maxSeats,
+    debug: qs.has('debug'),
+    on: {
+      status(s) {
+        status = s === 'online' ? 'online' : s === 'offline' ? 'offline' : 'connecting';
+        render();
+      },
+      role(r) {
+        role = r;
+        if (r === 'host') becomeHost();
+        render();
+      },
+      welcome(m) {
+        if (m.name && m.name !== me.name) {
+          me.name = m.name;
+          saveMe();
+        }
+      },
+      hello: hostHello,
+      msg(m, guest) {
+        if (role === 'host') hostMove(guest, m);
+        else if (m.t === 'state') receive(m.s);
+      },
+      guestLeft() {
+        if (role === 'host') publish(false);
+      },
+      hostLost() {
+        carry = room;
+        role = null;
+        stopHosting();
+        status = 'connecting';
+        render();
+      },
+      rejected(why) {
+        relay = null;
+        role = null;
+        room = null;
+        me.active = false;
+        saveMe();
+        status = 'idle';
+        joinError = why === 'full' ? 'The room is full right now.' : 'Someone in the room already has that name. Pick another one.';
+        render();
+      },
+    },
+  });
+  relay.start();
+}
+
+/** Solo: this phone runs the rules for itself. */
+async function startSolo() {
+  sound.unlock();
+  try {
+    await loadBank();
+  } catch {
+    joinError = 'Could not load the questions. Check your connection and try again.';
+    render();
+    return;
+  }
+  solo = true;
+  soloBest = Number(store.get(BEST_KEY)) || 0;
+  relay = null;
+  role = 'host';
+  room = engine.emptyRoom();
+  const ctx = context();
+  engine.join(room, { id: me.id, name: me.name || 'You' }, ctx);
+  engine.start(room, { id: me.id, solo: true }, ctx);
+  lastEvent = 0;
+  publish(true);
+}
+
+function exitSolo() {
+  stopHosting();
+  solo = false;
+  role = null;
+  room = null;
+  render();
+}
+
+function leaveRoom() {
+  act('leave');
+  const r = relay;
+  relay = null;
+  setTimeout(() => r?.stop(), 200);
+  stopHosting();
+  role = null;
+  room = null;
+  carry = null;
+  me.active = false;
+  saveMe();
+  status = 'idle';
+  render();
+}
+
+/* ---------- Hosting ---------- */
+
+function context() {
+  const online = relay ? relay.online() : {};
+  online[me.id] = Date.now();
+  return { now: Date.now(), online, bank };
+}
+
+function becomeHost() {
+  const ctx = context();
+  const base = carry ?? room;
+  carry = null;
+  if (base) {
+    room = structuredClone(base);
+    engine.takeOver(room, ctx);
+  } else room = engine.emptyRoom();
+  engine.join(room, { id: me.id, name: me.name }, ctx);
+  engine.tick(room, ctx);
+  publish(true);
+  healStop?.();
+  healStop = Timers.every(3000, () => publish(false)); // heals any dropped message
+}
+
+function stopHosting() {
+  Timers.clear(hostTimer);
+  hostTimer = 0;
+  healStop?.();
+  healStop = null;
+}
+
+/** Send the room to every phone and draw it here. */
+function publish(changed) {
+  if (role !== 'host' || !room) return;
+  if (changed) room.v += 1;
+  room.here = Object.keys(context().online);
+  relay?.sendAll({ t: 'state', s: room });
+  show(room);
+  scheduleTick();
+}
+
+function scheduleTick() {
+  Timers.clear(hostTimer);
+  if (role !== 'host' || !room?.stage) return;
+  const wait = Math.max(0, room.stage.until - Date.now()) + 5;
+  hostTimer = Timers.after(Math.min(wait, 1000), () => {
+    hostTimer = 0;
+    if (role !== 'host' || !room) return;
+    if (engine.tick(room, context())) publish(true);
+    else scheduleTick();
+  });
+}
+
+function hostHello(m, accept) {
+  if (!room) {
+    accept(false, 'full');
+    return;
+  }
+  const res = engine.join(room, { id: m.pid, name: m.name }, context());
+  if (res.error) {
+    accept(false, res.error);
+    return;
+  }
+  accept(true, null, { name: res.name });
+  publish(true);
+}
+
+const MOVES = {
+  answer: (s, id, m, ctx) => engine.answer(s, { id, text: m.text }, ctx),
+  start: (s, id, m, ctx) => engine.start(s, { id }, ctx),
+  next: (s, id, m, ctx) => engine.hurry(s, { id, kind: 'round' }, ctx),
+  continue: (s, id, m, ctx) => engine.hurry(s, { id, kind: 'insane' }, ctx),
+  lobby: (s, id, m, ctx) => engine.hurry(s, { id, kind: 'over' }, ctx),
+  leave: (s, id) => engine.leave(s, { id }),
+};
+
+function hostMove(guest, m) {
+  const move = MOVES[m.t];
+  if (!room || !move) return null;
+  const ctx = context();
+  engine.tick(room, ctx);
+  const res = move(room, guest ? guest.pid : me.id, m, ctx) ?? {};
+  publish(true);
+  return res;
+}
+
+/** Make a move: the host applies it right away, guests send it to the host. */
+function act(t, extra = {}) {
+  const m = { t, ...extra };
+  if (role === 'host') return hostMove(null, m);
+  relay?.send(m);
+  return null;
+}
+
+function receive(s) {
+  if (room && room.rid === s.rid && s.v < room.v) return;
+  carry = null;
+  show(s);
+}
+
+/* ---------- Drawing ---------- */
+
 let screen = '';
+let shownGame = null;
 let lastEvent = 0;
 let stageKey = '';
 let questionKey = '';
 let lastTick = null;
-let sending = false;
+let sending = 0;
+let lastSent = '';
 let insaneShow = null;
 const boardIds = new Set();
-const shownScores = new Map();
-const bumping = new Set();
 
-const conn = connect({ me, onState, onStatus });
-
-/* ---------- Small helpers ---------- */
-
-function readSoundPref() {
-  try {
-    return localStorage.getItem(SOUND_KEY) !== 'off';
-  } catch {
-    return true;
-  }
+function show(next) {
+  const fresh = !room || room.rid !== next.rid || lastEvent === 0;
+  room = next;
+  if (fresh) lastEvent = room.eventId;
+  render();
+  handleEvents();
 }
+
+const mySeat = () => (room?.seats ?? []).findIndex((p) => p.id === me.id);
+const seatEl = (seat) => $('seats').children[seat];
+const nameOf = (seat) => (room.seats[seat]?.id === me.id ? 'you' : room.seats[seat]?.name ?? 'someone');
 
 function initials(name) {
   const parts = String(name).trim().split(/\s+/).filter(Boolean);
@@ -71,62 +356,26 @@ function heartIcon(full) {
   return svg;
 }
 
-const tierInfo = (id) => room?.tiers?.find((t) => t.id === id) ?? { id, name: id, points: 0 };
-const tierRank = (id) => Math.max(0, room?.tiers?.findIndex((t) => t.id === id) ?? 0);
-const mySeat = () => (room?.seats ?? []).findIndex((p) => p.id === me.id);
-const joined = () => Boolean(room?.roster?.some((p) => p.id === me.id));
-const seatEl = (seat) => $('seats').children[seat];
-const nameOf = (seat) => (room.seats[seat]?.id === me.id ? 'you' : room.seats[seat]?.name ?? 'someone');
-const possessive = (name) => `${name}’s`;
-
 function setFeedback(text, tone) {
   const node = $('feedback');
   node.textContent = text;
   node.className = tone ? `feedback is-${tone}` : 'feedback';
 }
 
-/* ---------- State in ---------- */
-
-function onStatus(next) {
-  if (next === status) return;
-  status = next;
-  render();
-}
-
-function onState(next, hereIds) {
-  if (hereIds) here = new Set(hereIds);
-  if (next) {
-    const first = room === null;
-    if (first) lastEvent = next.eventId;
-    if (room && room.game !== next.game) resetGameView();
-    room = next;
-  }
-  render();
-  if (next) handleEvents();
-}
-
-function resetGameView() {
-  $('seats').replaceChildren();
-  $('board').replaceChildren();
-  boardIds.clear();
-  shownScores.clear();
-  bumping.clear();
-  questionKey = '';
-  stageKey = '';
-  setFeedback('');
-}
-
-/* ---------- Screens ---------- */
-
 function pickScreen() {
-  if (!room) return 'front';
-  const involved = mySeat() >= 0 || joined() || watching;
-  if (room.phase === 'game' && involved) return 'game';
-  if (room.phase === 'over' && involved) return 'results';
+  if (!room || (!me.active && !solo)) return 'front';
+  if (room.phase === 'game') return 'game';
+  if (room.phase === 'over') return 'results';
   return 'front';
 }
 
 function render() {
+  if (solo && room?.phase === 'lobby') {
+    stopHosting();
+    solo = false;
+    role = null;
+    room = null;
+  }
   const next = pickScreen();
   if (next !== screen) {
     screen = next;
@@ -136,35 +385,35 @@ function render() {
     stageKey = '';
     window.scrollTo(0, 0);
   }
-  conn.setLobby(!room || room.phase === 'lobby');
-  $('conn').hidden = status !== 'offline';
+  $('conn').hidden = !(me.active && (status === 'offline' || (status === 'connecting' && room)));
   if (screen === 'front') renderFront();
   else if (screen === 'game') renderGame();
   else renderResults();
 }
 
+/* ---------- Front and lobby ---------- */
+
 function renderFront() {
-  const inRoom = joined();
-  const lobby = !room || room.phase === 'lobby';
+  const joining = me.active && !room;
+  const inLobby = Boolean(me.active && room && room.phase === 'lobby');
   const notice = $('notice');
-  if (status === 'setup') notice.textContent = 'The room isn’t connected to its database yet, so nobody can join. Check back soon.';
-  else if (room?.phase === 'game') notice.textContent = `A game is going, question ${room.qi + 1} of ${room.qCount}. Join now to play the next one.`;
-  else if (room?.phase === 'over') notice.textContent = 'A game just finished. Join to play the next one.';
-  else notice.textContent = '';
+  notice.textContent = joining ? (status === 'offline' ? 'Can’t reach the game relay. Still trying.' : 'Joining the room') : '';
   notice.hidden = !notice.textContent;
+  notice.classList.toggle('is-error', joining && status === 'offline');
 
-  $('joinForm').hidden = inRoom;
-  $('joinBtn').textContent = lobby ? 'Join' : 'Join next game';
-  $('joinBtn').disabled = status === 'setup';
-  if (!inRoom && !$('nameInput').value && me.name && document.activeElement !== $('nameInput')) $('nameInput').value = me.name;
-  $('lobbyActions').hidden = !(inRoom && lobby);
-  $('watchBtn').hidden = lobby || inRoom || room?.phase !== 'game';
+  $('joinForm').hidden = me.active;
+  $('soloBtn').hidden = me.active;
+  $('joinError').textContent = joinError;
+  if (!me.active && !$('nameInput').value && me.name && document.activeElement !== $('nameInput')) $('nameInput').value = me.name;
+  $('lobbyActions').hidden = !inLobby;
+  $('roomSection').hidden = !inLobby;
+  if (!inLobby) return;
 
-  const people = (room?.roster ?? []).filter((p) => p.id === me.id || !here.size || here.has(p.id));
+  const here = new Set(room.here ?? []);
+  const people = room.roster.filter((p) => p.id === me.id || here.has(p.id));
   renderRoster(people);
-  $('roomCount').textContent = people.length ? String(people.length) : '';
+  $('roomCount').textContent = String(people.length);
   $('roomEmpty').hidden = people.length > 0;
-  $('roomSection').hidden = !lobby && !people.length;
   $('startBtn').textContent = people.length > 1 ? `Start game with ${people.length}` : 'Start game';
 }
 
@@ -188,12 +437,22 @@ function renderRoster(people) {
   existing.forEach((li) => li.remove());
 }
 
-/* ---------- Game screen ---------- */
+/* ---------- Game ---------- */
 
 function renderGame() {
+  if (shownGame !== room.game) {
+    shownGame = room.game;
+    $('seats').replaceChildren();
+    $('board').replaceChildren();
+    boardIds.clear();
+    questionKey = '';
+    stageKey = '';
+    setFeedback('');
+  }
   renderSeats();
-  const key = `${room.game}:${room.qi}`;
-  $('progress').textContent = room.qi >= 0 ? `Question ${room.qi + 1} of ${room.qCount}` : '';
+  const progress = `Question ${room.qi + 1} of ${room.qCount}`;
+  $('progress').textContent = room.pass > 0 ? `${progress}, overtime` : progress;
+  const key = `${room.game}:${room.played}`;
   if (key !== questionKey) {
     questionKey = key;
     $('board').replaceChildren();
@@ -210,12 +469,9 @@ function renderSeats() {
   const wrap = $('seats');
   if (wrap.children.length !== room.seats.length) {
     wrap.replaceChildren(
-      ...room.seats.map((p, i) => {
+      ...room.seats.map((p) => {
         const node = make('div', 'seat');
-        const line = make('div', 'seat__line');
-        line.append(make('span', 'hearts'), make('span', 'seat__score', String(p.score)));
-        node.append(avatar(p, 'seat'), make('span', 'seat__name'), line);
-        shownScores.set(i, p.score);
+        node.append(avatar(p, 'seat'), make('span', 'seat__name'), make('span', room.mode === 'solo' ? 'seat__score' : 'hearts'));
         return node;
       }),
     );
@@ -225,38 +481,20 @@ function renderSeats() {
     const node = seatEl(i);
     node.classList.toggle('is-out', p.out);
     node.classList.toggle('is-me', p.id === me.id);
+    node.classList.toggle('is-away', !p.out && Array.isArray(room.here) && !room.here.includes(p.id));
     node.querySelector('.seat__name').textContent = p.id === me.id ? 'You' : p.name;
+    if (room.mode === 'solo') {
+      const score = node.querySelector('.seat__score');
+      if (score.textContent !== String(p.score)) {
+        score.textContent = String(p.score);
+        score.animate([{ transform: 'scale(1.4)' }, { transform: 'none' }], { duration: 400, easing: 'ease-out' });
+      }
+      return;
+    }
     const hearts = node.querySelector('.hearts');
     hearts.replaceChildren(...Array.from({ length: p.maxHearts }, (_, h) => heartIcon(h < p.hearts)));
-    hearts.setAttribute('aria-label', `${p.hearts} of ${p.maxHearts} hearts`);
+    hearts.setAttribute('aria-label', p.out ? 'Out' : `${p.hearts} of ${p.maxHearts} hearts`);
   });
-}
-
-function syncScores() {
-  room.seats.forEach((p, i) => {
-    if (bumping.has(i) || shownScores.get(i) === p.score) return;
-    shownScores.set(i, p.score);
-    const node = seatEl(i)?.querySelector('.seat__score');
-    if (node) node.textContent = String(p.score);
-  });
-}
-
-function bumpScore(seat, tierId) {
-  const node = seatEl(seat)?.querySelector('.seat__score');
-  if (!node) return;
-  const from = shownScores.get(seat) ?? 0;
-  const to = room.seats[seat].score;
-  shownScores.set(seat, to);
-  bumping.add(seat);
-  const t0 = performance.now();
-  const step = (now) => {
-    const k = Math.min(1, (now - t0) / 700);
-    node.textContent = String(Math.round(from + (to - from) * (1 - (1 - k) ** 3)));
-    if (k < 1) requestAnimationFrame(step);
-    else bumping.delete(seat);
-  };
-  requestAnimationFrame(step);
-  node.animate([{ transform: 'scale(1.45)', color: tierColor(tierId) }, { transform: 'scale(1)' }], { duration: 650, easing: 'cubic-bezier(.2,.8,.2,1)' });
 }
 
 function renderBoard() {
@@ -264,33 +502,50 @@ function renderBoard() {
   for (const entry of room.round?.found ?? []) {
     if (boardIds.has(entry.id)) continue;
     boardIds.add(entry.id);
-    const finder = room.seats[entry.seat];
+    const finder = room.seats[entry.seat] ?? { name: '?', color: 0 };
     const li = make('li', 'found');
     li.dataset.tier = entry.tier;
-    li.title = `${finder?.name ?? ''}, ${tierInfo(entry.tier).name}`;
-    li.append(avatar(finder ?? { name: '?', color: 0 }, 'xs'), make('span', 'found__label', entry.label), make('span', 'found__pts', `+${entry.points}`));
+    li.title = `${finder.name}, ${tierName(entry.tier)}`;
+    li.append(avatar(finder, 'xs'), make('span', 'found__label', entry.label));
     board.prepend(li);
     li.animate([{ opacity: 0, transform: 'scale(.7)' }, { opacity: 1, transform: 'scale(1.06)', offset: 0.7 }, { opacity: 1, transform: 'none' }], { duration: 380, easing: 'cubic-bezier(.2,.9,.3,1.2)' });
   }
 }
 
-const REASONS = {
-  back: (s) => `Back around to ${s}, who missed this one.`,
-  cleared: () => 'Every answer on the board was found.',
-  long: () => 'Three full laps. On to the next one.',
-  standing: () => {
-    const alive = room.seats.filter((p) => !p.out);
-    return alive.length === 1 ? `${alive[0].id === me.id ? 'You are' : `${alive[0].name} is`} the last one standing.` : 'Everyone is out of hearts.';
-  },
-};
+function listNames(seats) {
+  const names = seats.map((seat) => (room.seats[seat]?.id === me.id ? 'You' : room.seats[seat]?.name ?? 'Someone'));
+  if (names.length <= 1) return names.join('');
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
+function recapReason(st) {
+  const missed = st.failed ?? [];
+  const outNow = missed.filter((seat) => room.seats[seat]?.out && room.seats[seat]?.outAt === room.played);
+  let text = '';
+  if (room.mode === 'solo') {
+    if (st.reason === 'cleared') return 'You found every answer on the board.';
+    if (st.reason === 'long') return 'That is plenty for this one.';
+    return 'Time\u2019s up.';
+  }
+  if (st.reason === 'missed') text = `${listNames(missed)} ran out of time.`;
+  else if (st.reason === 'cleared') text = 'Every answer on the board was found.';
+  else if (st.reason === 'low') text = 'Not enough answers left to go around.';
+  else if (st.reason === 'long') text = 'Five full circles without a miss. On to the next one.';
+  else if (st.reason === 'standing') text = 'Only one player is left.';
+  else text = 'Nobody could take a turn.';
+  if (outNow.length) {
+    const plural = outNow.length > 1 || room.seats[outNow[0]]?.id === me.id;
+    text += ` ${listNames(outNow)} ${plural ? 'are' : 'is'} out.`;
+  }
+  return text;
+}
 
 function fillRecap(st) {
-  const backName = room.seats[st.seat]?.id === me.id ? 'you' : room.seats[st.seat]?.name ?? '';
-  $('recapReason').textContent = (REASONS[st.reason] ?? (() => ''))(backName);
+  $('recapReason').textContent = recapReason(st);
   const rows = (st.reveal ?? []).map((row) => {
     const section = make('section', 'tier-row');
     const head = make('div', 'tier-row__head');
-    const pill = make('span', 'pill', tierInfo(row.tier).name);
+    const pill = make('span', 'pill', tierName(row.tier));
     pill.dataset.tier = row.tier;
     const count = row.total === null ? `${row.found.length} found` : `${row.found.length} of ${row.total} found`;
     head.append(pill, make('span', 'tier-row__count', count));
@@ -298,8 +553,7 @@ function fillRecap(st) {
     row.found.forEach((f) => {
       const chip = make('span', 'chip is-found');
       chip.dataset.tier = row.tier;
-      const finder = room.seats[f.seat];
-      chip.append(avatar(finder ?? { name: '?', color: 0 }, 'xs'), make('span', null, f.label));
+      chip.append(avatar(room.seats[f.seat] ?? { name: '?', color: 0 }, 'xs'), make('span', null, f.label));
       chips.append(chip);
     });
     row.missing.forEach((label) => chips.append(make('span', 'chip', label)));
@@ -309,23 +563,19 @@ function fillRecap(st) {
   });
   $('reveal').replaceChildren(...rows);
   const next = $('nextBtn');
-  next.textContent = st.final ? 'See results' : 'Next question';
-  next.hidden = !joined() && mySeat() < 0;
+  next.textContent = st.final ? 'See who won' : 'Next question';
   next.disabled = true;
 }
 
-/* ---------- Stages and the timer ---------- */
-
-/** The stage to show now. Turns that the server already planned start on time locally. */
+/** The stage to show now. A turn the host already planned starts on time without waiting for it. */
 function derive(now) {
   const st = room?.stage;
   if (!st || room.phase !== 'game') return null;
   if (now < st.until) return st;
-  const turnMs = room.rules.turnMs;
   if ((st.kind === 'resolve' || st.kind === 'insane') && st.next?.kind === 'turn') {
-    return { kind: 'turn', seat: st.next.seat, from: st.until, until: st.until + turnMs, predicted: true };
+    return { kind: 'turn', seat: st.next.seat, from: st.until, until: st.until + room.turnMs, predicted: true };
   }
-  if (st.kind === 'intro') return { kind: 'turn', seat: st.seat, from: st.until, until: st.until + turnMs, predicted: true };
+  if (st.kind === 'intro') return { kind: 'turn', seat: st.seat, from: st.until, until: st.until + room.turnMs, predicted: true };
   return st;
 }
 
@@ -333,7 +583,6 @@ function onStage(st) {
   const game = $('game');
   const kind = st?.kind ?? '';
   game.dataset.stage = kind;
-  if (st) conn.wakeAt(st.until);
   if (kind !== 'insane' && insaneShow) {
     insaneShow.close();
     insaneShow = null;
@@ -353,17 +602,17 @@ function onStage(st) {
   const input = $('answer');
   const canType = kind === 'turn' && mine;
   input.disabled = !canType;
-  $('sendBtn').disabled = !canType || sending;
+  $('sendBtn').disabled = !canType;
 
-  const turnName = $('turnName');
-  const turnAvatar = $('turnAvatar');
   if (player && (kind === 'intro' || kind === 'turn')) {
-    turnName.textContent = kind === 'intro' ? (mine ? 'You go first' : `${player.name} goes first`) : mine ? 'Your turn' : `${possessive(player.name)} turn`;
-    turnAvatar.replaceWith(Object.assign(avatar(player), { id: 'turnAvatar' }));
+    $('turnName').textContent = kind === 'intro' ? (mine ? 'You go first' : `${player.name} goes first`) : mine ? 'Your turn' : `${player.name}’s turn`;
+    $('turnAvatar').replaceWith(Object.assign(avatar(player), { id: 'turnAvatar' }));
     $('turn').animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: 'ease-out' });
   }
 
-  if (mySeat() < 0) input.placeholder = joined() ? 'You’re in for the next game' : 'You’re watching';
+  const seat = mySeat();
+  if (seat < 0) input.placeholder = 'You’re in for the next game';
+  else if (room.seats[seat].out) input.placeholder = 'You’re out. Watch the rest';
   else if (canType) input.placeholder = 'Type an answer';
   else input.placeholder = player && kind === 'turn' ? `Waiting for ${player.name}` : '';
 
@@ -381,10 +630,10 @@ function onStage(st) {
 }
 
 function drawTimer(st, now) {
+  if (!st) return;
   const fill = $('timerFill');
   const num = $('timerNum');
   const game = $('game');
-  if (!st) return;
   if (st.kind === 'turn' || st.kind === 'round') {
     const total = st.until - st.from;
     const left = Math.max(0, Math.min(total, st.until - now));
@@ -393,7 +642,7 @@ function drawTimer(st, now) {
     num.textContent = String(Math.ceil(left / 1000));
     if (st.kind === 'round') {
       game.dataset.timer = 'idle';
-      $('nextBtn').disabled = now < st.from + room.rules.roundMinMs;
+      $('nextBtn').disabled = now < st.from + engine.RULES.roundMinMs;
       return;
     }
     game.dataset.timer = ratio > 0.5 ? 'blue' : ratio > 0.25 ? 'yellow' : 'red';
@@ -407,16 +656,16 @@ function drawTimer(st, now) {
   } else if (st.kind === 'intro') {
     fill.style.width = '100%';
     game.dataset.timer = 'idle';
-    num.textContent = String(Math.round(room.rules.turnMs / 1000));
+    num.textContent = String(Math.round(room.turnMs / 1000));
   }
 }
 
 function frame() {
   requestAnimationFrame(frame);
   if (screen !== 'game' || !room) return;
-  const now = serverNow();
+  const now = clock();
   const st = derive(now);
-  const key = st ? `${room.game}:${room.qi}:${st.kind}:${st.seat ?? ''}:${st.from}` : 'none';
+  const key = st ? `${room.game}:${room.played}:${st.kind}:${st.seat ?? ''}:${st.from}` : 'none';
   if (key !== stageKey) {
     stageKey = key;
     onStage(st);
@@ -424,16 +673,16 @@ function frame() {
   drawTimer(st, now);
 }
 
-/* ---------- Events: one-off moments everyone sees ---------- */
+/* ---------- Moments everyone sees ---------- */
 
 function inputCenter() {
   const r = $('answer').getBoundingClientRect();
   return [r.left + r.width / 2, r.top + r.height / 2];
 }
 
-function stamp(label, points, tierId) {
+function stamp(label, tone, points) {
   const node = $('stamp');
-  node.dataset.tier = tierId;
+  node.dataset.tier = tone;
   node.replaceChildren(make('span', null, label));
   if (points) node.append(make('span', 'stamp__pts', `+${points}`));
   node.getAnimations().forEach((a) => a.cancel());
@@ -454,7 +703,7 @@ function breakHeart(seat) {
   const lost = seatEl(seat)?.querySelectorAll('.heart')[player.hearts];
   if (!lost) return;
   const r = lost.getBoundingClientRect();
-  fx.burst(r.left + r.width / 2, r.top + r.height / 2, { colors: [css('--heart'), css('--fg')], count: 14, speed: 4, size: [3, 7], life: [25, 45] });
+  fx.burst(r.left + r.width / 2, r.top + r.height / 2, { colors: [css('--heart'), css('--fg')], count: 16, speed: 4.5, size: [3, 7], life: [25, 45] });
   const ghost = heartIcon(true);
   Object.assign(ghost.style, { position: 'fixed', left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, zIndex: 50, pointerEvents: 'none' });
   document.body.append(ghost);
@@ -462,10 +711,10 @@ function breakHeart(seat) {
     .animate(
       [
         { transform: 'scale(1) rotate(0)', opacity: 1 },
-        { transform: 'scale(2.4) rotate(-12deg)', opacity: 1, offset: 0.3 },
-        { transform: 'translateY(40px) scale(1.4) rotate(25deg)', opacity: 0 },
+        { transform: 'scale(2.6) rotate(-12deg)', opacity: 1, offset: 0.3 },
+        { transform: 'translateY(44px) scale(1.4) rotate(25deg)', opacity: 0 },
       ],
-      { duration: 720, easing: 'cubic-bezier(.3,.6,.4,1)' },
+      { duration: 760, easing: 'cubic-bezier(.3,.6,.4,1)' },
     )
     .finished.then(() => ghost.remove(), () => ghost.remove());
 }
@@ -478,15 +727,23 @@ function tryMessage(e) {
   return `${said} isn’t on the board`;
 }
 
+function prettify(text) {
+  const forms = { mr: 'Mr.', mrs: 'Mrs.', ms: 'Ms.', dr: 'Dr.' };
+  return String(text)
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => forms[w.toLowerCase().replace(/\./g, '')] ?? (w.length >= 5 && w === w.toUpperCase() ? w[0] + w.slice(1).toLowerCase() : w[0].toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
 function handleEvents() {
   const fresh = room.events.filter((e) => e.id > lastEvent);
   lastEvent = Math.max(lastEvent, room.eventId);
-  const now = serverNow();
+  const now = clock();
   for (const e of fresh) {
     if (now - e.t > 8000 || screen === 'front') continue;
     onEvent(e, now);
   }
-  if (screen === 'game') syncScores();
 }
 
 function onEvent(e, now) {
@@ -501,16 +758,13 @@ function onEvent(e, now) {
         void form.offsetWidth;
         form.classList.add('is-shake', 'is-wrong');
         $('answer').select();
-      } else {
-        shake($('feedback'), 5, 280);
-      }
+      } else shake($('feedback'), 5, 280);
       sound.wrong();
       break;
     }
     case 'hit': {
-      const tier = tierInfo(e.tier);
       const rank = tierRank(e.tier);
-      stamp(tier.name, e.points, e.tier);
+      stamp(tierName(e.tier), e.tier, room.mode === 'solo' ? e.points : 0);
       setFeedback('');
       if (mine) $('answer').value = '';
       const [x, y] = inputCenter();
@@ -522,37 +776,42 @@ function onEvent(e, now) {
         shake($('stage'), 7);
       }
       sound.correct(rank);
-      bumpScore(e.seat, e.tier);
       break;
     }
     case 'insane': {
       if (mine) $('answer').value = '';
-      bumpScore(e.seat, 'insane');
-      if (now - e.t > 6000) break;
+      if (now - e.t > 6000 || !player) break;
       $('answer').blur();
       insaneShow = playInsane({
         answer: prettify(e.text),
         player: { name: player.name, initials: initials(player.name), color: player.color % 8 },
-        points: e.points,
         fx,
         sound,
         origin: inputCenter(),
         scene: $('game'),
-        canContinueAt: Math.max(0, e.t + room.rules.insaneMinMs - now),
-        onContinue: () => (joined() ? conn.act('continue') : null),
+        canContinueAt: Math.max(0, e.t + engine.RULES.insaneMinMs - now),
+        onContinue: () => act('continue'),
       });
       break;
     }
     case 'timeout': {
-      stamp('Time’s up', 0, 'miss');
+      stamp('Time’s up', 'miss');
+      if (room.mode === 'solo') {
+        sound.timeout();
+        break;
+      }
       breakHeart(e.seat);
       const who = mine ? 'You' : player?.name ?? 'Someone';
-      setFeedback(e.out ? `${who} ${mine ? 'are' : 'is'} out` : `${who} ${mine ? 'lose' : 'loses'} a heart`, 'error');
+      if (e.out) setFeedback(`${who} ${mine ? 'are' : 'is'} out`, 'error');
+      else setFeedback(`${who} ${mine ? 'lose' : 'loses'} a heart`, 'error');
       shake($('stage'), 8);
       sound.timeout();
       if (mine) navigator.vibrate?.([80, 60, 80]);
       break;
     }
+    case 'overtime':
+      setFeedback('Overtime. Turns are shorter now.');
+      break;
     case 'round':
       sound.roundEnd();
       break;
@@ -564,16 +823,8 @@ function onEvent(e, now) {
   }
 }
 
-function prettify(text) {
-  const forms = { mr: 'Mr.', mrs: 'Mrs.', ms: 'Ms.', dr: 'Dr.' };
-  return String(text)
-    .split(' ')
-    .map((w) => forms[w.toLowerCase().replace(/\./g, '')] ?? (w.length >= 5 && w === w.toUpperCase() ? w[0] + w.slice(1).toLowerCase() : w[0].toUpperCase() + w.slice(1)))
-    .join(' ');
-}
-
 function celebrate() {
-  const colors = (room.tiers ?? []).map((t) => tierColor(t.id));
+  const colors = TIERS.map((t) => tierColor(t.id));
   [0, 260, 520].forEach((d, i) => {
     setTimeout(() => fx.burst(window.innerWidth * (0.25 + i * 0.25), window.innerHeight * 0.22, { colors, count: 60, speed: 12, gravity: 0.25, life: [70, 120] }), d);
   });
@@ -581,117 +832,167 @@ function celebrate() {
 
 /* ---------- Results ---------- */
 
-function renderResults() {
-  const ranked = [...room.seats].sort((a, b) => b.score - a.score || b.hearts - a.hearts || b.finds.length - a.finds.length);
-  const top = ranked[0];
-  if (!top) return;
-  const tied = ranked.length > 1 && ranked[1].score === top.score && ranked[1].hearts === top.hearts;
-  const solo = ranked.length === 1;
-  const winnerIsMe = top.id === me.id;
-  $('winnerTitle').textContent = solo ? `${top.score} points` : tied ? 'It’s a tie' : winnerIsMe ? 'You win' : `${top.name} wins`;
-  $('winnerSub').textContent = solo ? `${top.finds.length} answers found` : `${top.score} points`;
-  const big = $('winnerAvatar');
-  big.textContent = initials(top.name);
-  big.style.setProperty('--c', `var(--p${(top.color % 8) + 1})`);
-  big.hidden = tied && !solo;
+/** Everything typed in a solo run, grouped by question, ready to paste back to Claude. */
+function exportText() {
+  const p = room.seats[0];
+  const lines = [`Yo UnCrillion solo run, ${new Date().toLocaleDateString()}`, `Score: ${p.score}`, ''];
+  const groups = [
+    ['hit', 'Accepted'],
+    ['miss', 'Not on the board'],
+    ['used', 'Already said'],
+    ['random', 'Looked like gibberish'],
+    ['blocked', 'Blocked'],
+  ];
+  for (let qi = 0; qi < room.qCount; qi++) {
+    const tries = room.log.filter((l) => l.qi === qi);
+    if (!tries.length) continue;
+    lines.push(`${qi + 1}. ${bank?.[qi]?.prompt ?? `Question ${qi + 1}`}`);
+    for (const [verdict, title] of groups) {
+      const items = tries.filter((l) => l.verdict === verdict);
+      if (!items.length) continue;
+      const bare = (t) => String(t).toLowerCase().replace(/[^a-z0-9]/g, '');
+      const shown = items.map((l) => (verdict === 'hit' ? `${l.text} (${tierName(l.tier)}${l.label && bare(l.label) !== bare(l.text) ? `, counted as ${l.label}` : ''})` : l.text));
+      lines.push(`${title}: ${shown.join(', ')}`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n').trim();
+}
 
+function renderSoloResults() {
+  const p = room.seats[0];
+  const best = soloBest;
+  const record = p.score > best;
+  if (record) store.set(BEST_KEY, p.score);
+  $('winnerAvatar').hidden = true;
+  $('winnerTitle').textContent = `${p.score} points`;
+  $('winnerSub').textContent = record ? 'New high score' : `High score ${best}`;
   $('standings').replaceChildren(
-    ...ranked.map((p, i) => {
-      const li = make('li', p.id === me.id ? 'standing is-me' : 'standing');
-      const who = make('div', 'standing__who');
-      who.append(make('span', 'standing__name', p.id === me.id ? `${p.name} (you)` : p.name));
-      const best = [...p.finds].sort((a, b) => tierRank(b.tier) - tierRank(a.tier))[0];
-      const line = make('div', 'standing__best');
-      if (best) {
-        const pill = make('span', 'pill pill--sm', tierInfo(best.tier).name);
-        pill.dataset.tier = best.tier;
-        line.append(pill, make('span', null, best.label));
-      } else {
-        line.append(make('span', null, 'No answers found'));
-      }
-      who.append(line);
-      li.append(make('span', 'standing__rank', String(i + 1)), avatar(p, 'lg'), who, make('span', 'standing__score', String(p.score)));
+    ...Array.from({ length: room.qCount }, (_, qi) => {
+      const found = room.log.filter((l) => l.qi === qi && l.verdict === 'hit');
+      const pts = found.reduce((sum, l) => sum + (TIERS.find((t) => t.id === l.tier)?.points ?? 0), 0);
+      const li = make('li', 'solo-row');
+      const q = make('div', 'solo-row__q');
+      q.append(make('span', 'solo-row__prompt', bank?.[qi]?.prompt ?? `Question ${qi + 1}`), make('span', 'solo-row__meta', `${found.length} found`));
+      li.append(make('span', 'standing__rank', String(qi + 1)), q, make('span', 'solo-row__pts', String(pts)));
       return li;
     }),
   );
-  $('lobbyBtn').textContent = joined() ? 'Back to the room' : 'Join the next game';
+  $('againBtn').hidden = false;
+  $('exportBtn').hidden = false;
+  $('lobbyBtn').textContent = 'Back to start';
+  $('lobbyBtn').className = 'btn btn--ghost btn--lg';
 }
 
-/* ---------- Moves ---------- */
-
-async function busyButton(button, task) {
-  if (button.disabled) return;
-  button.disabled = true;
-  try {
-    return await task();
-  } finally {
-    button.disabled = false;
+function renderResults() {
+  if (room.mode === 'solo') {
+    renderSoloResults();
+    return;
   }
+  $('againBtn').hidden = true;
+  $('exportBtn').hidden = true;
+  $('exportText').hidden = true;
+  $('exportNote').textContent = '';
+  $('lobbyBtn').textContent = 'Back to the room';
+  $('lobbyBtn').className = 'btn btn--primary btn--lg';
+  const rows = engine.standings(room);
+  const winners = rows.filter((p) => p.rank === 1);
+  const top = winners[0];
+  if (!top) return;
+  const solo = room.seats.length === 1;
+  const tie = winners.length > 1;
+  const iWon = winners.some((p) => p.id === me.id);
+  $('winnerTitle').textContent = tie ? 'It’s a tie' : iWon ? 'You win' : `${top.name} wins`;
+  if (solo) $('winnerSub').textContent = `You lasted ${room.played} question${room.played === 1 ? '' : 's'}`;
+  else if (tie) $('winnerSub').textContent = `${listNames(winners.map((p) => p.seat))} went out together`;
+  else $('winnerSub').textContent = 'Last one standing';
+  const big = $('winnerAvatar');
+  big.textContent = initials(top.name);
+  big.style.setProperty('--c', `var(--p${(top.color % 8) + 1})`);
+  big.hidden = tie;
+
+  $('standings').replaceChildren(
+    ...rows.map((p) => {
+      const li = make('li', p.id === me.id ? 'standing is-me' : 'standing');
+      const who = make('div', 'standing__who');
+      who.append(make('span', 'standing__name', p.id === me.id ? `${p.name} (you)` : p.name));
+      const line = make('div', 'standing__best');
+      const best = [...p.finds].sort((a, b) => tierRank(b.tier) - tierRank(a.tier))[0];
+      if (best) {
+        const pill = make('span', 'pill pill--sm', tierName(best.tier));
+        pill.dataset.tier = best.tier;
+        line.append(pill, make('span', null, best.label));
+      } else line.append(make('span', null, 'No answers found'));
+      who.append(line);
+      const status = p.out ? `Out on question ${p.outAt}` : p.rank === 1 ? 'Winner' : `${p.hearts} left`;
+      li.append(make('span', 'standing__rank', String(p.rank)), avatar(p, 'lg'), who, make('span', 'standing__status', status));
+      return li;
+    }),
+  );
 }
+
+/* ---------- Controls ---------- */
 
 $('joinForm').addEventListener('submit', (e) => {
   e.preventDefault();
   sound.unlock();
-  const name = $('nameInput').value.trim();
-  const error = $('joinError');
+  const name = engine.cleanName($('nameInput').value);
   if (!name) {
-    error.textContent = 'Type your name first';
+    joinError = 'Type your name first';
+    renderFront();
     $('nameInput').focus();
     return;
   }
-  busyButton($('joinBtn'), async () => {
-    const res = await conn.act('join', { name });
-    if (res.error) {
-      error.textContent = res.message || res.error;
-      return;
-    }
-    error.textContent = '';
-    me.name = name;
-    saveMe(me);
-    $('nameInput').blur();
-  });
+  $('nameInput').blur();
+  joinRoom(name);
 });
 
 $('startBtn').addEventListener('click', () => {
   sound.unlock();
-  busyButton($('startBtn'), async () => {
-    const res = await conn.act('start');
-    if (res.error) $('joinError').textContent = res.message || res.error;
-  });
+  act('start');
 });
-
-$('leaveBtn').addEventListener('click', () => busyButton($('leaveBtn'), () => conn.act('leave')));
-
-$('watchBtn').addEventListener('click', () => {
-  sound.unlock();
-  watching = true;
-  render();
+$('leaveBtn').addEventListener('click', leaveRoom);
+$('nextBtn').addEventListener('click', () => {
+  $('nextBtn').disabled = true;
+  act('next');
 });
-
-$('answer').addEventListener('input', () => $('answerForm').classList.remove('is-wrong'));
-
-$('answerForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const text = $('answer').value.trim();
-  if (!text || sending || $('answer').disabled) return;
-  sending = true;
-  $('sendBtn').disabled = true;
-  const res = await conn.act('answer', { text });
-  sending = false;
-  $('sendBtn').disabled = $('answer').disabled;
-  if (res.error) setFeedback(res.message || res.error, 'error');
-});
-
-$('nextBtn').addEventListener('click', () => busyButton($('nextBtn'), () => conn.act('next')));
-
-$('lobbyBtn').addEventListener('click', () => {
-  if (joined()) {
-    busyButton($('lobbyBtn'), () => conn.act('lobby'));
-    return;
+$('lobbyBtn').addEventListener('click', () => (solo ? exitSolo() : act('lobby')));
+$('soloBtn').addEventListener('click', () => {
+  const name = engine.cleanName($('nameInput').value);
+  if (name) {
+    me.name = name;
+    saveMe();
   }
-  watching = false;
-  render();
-  $('nameInput').focus();
+  startSolo();
+});
+$('againBtn').addEventListener('click', () => {
+  $('exportText').hidden = true;
+  $('exportNote').textContent = '';
+  startSolo();
+});
+$('exportBtn').addEventListener('click', async () => {
+  const text = exportText();
+  const box = $('exportText');
+  box.value = text;
+  try {
+    await navigator.clipboard.writeText(text);
+    $('exportNote').textContent = 'Copied. Paste it to Claude to add answers to the bank.';
+  } catch {
+    box.hidden = false;
+    box.focus();
+    box.select();
+    $('exportNote').textContent = 'Select all and copy it from here.';
+  }
+});
+$('answer').addEventListener('input', () => $('answerForm').classList.remove('is-wrong'));
+$('answerForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const input = $('answer');
+  const text = input.value.trim();
+  if (!text || input.disabled || (text === lastSent && Date.now() - sending < 600)) return;
+  sending = Date.now();
+  lastSent = text;
+  act('answer', { text });
 });
 
 const soundBtn = $('soundBtn');
@@ -699,11 +1000,7 @@ const syncSoundButton = () => soundBtn.setAttribute('aria-pressed', String(sound
 soundBtn.addEventListener('click', () => {
   sound.enabled = !sound.enabled;
   if (sound.enabled) sound.unlock();
-  try {
-    localStorage.setItem(SOUND_KEY, sound.enabled ? 'on' : 'off');
-  } catch {
-    /* not remembered */
-  }
+  store.set(SOUND_KEY, sound.enabled);
   syncSoundButton();
 });
 
@@ -714,8 +1011,13 @@ document.addEventListener('keydown', (e) => {
     $('insaneGo').click();
   }
 });
+window.addEventListener('pagehide', () => relay?.stop());
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted && me.active && me.name) joinRoom(me.name);
+});
 
 syncSoundButton();
+loadBank().catch(() => {});
 render();
-conn.poll();
+if (me.active && me.name) joinRoom(me.name);
 requestAnimationFrame(frame);
