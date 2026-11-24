@@ -252,3 +252,27 @@ test('solo: points by rarity, the timer resets after every answer, time running 
   room.tick(s, ctx(s.stage.until));
   assert.equal(s.stage.next.final, true, 'last question ends the run');
 });
+
+test('solo: alone in the room plays solo, Next skips a question, a cleared board moves on fast, all questions get played', () => {
+  const { s, ctx, id } = setup(['Me'], [bank[1], bank[3]]);
+  room.start(s, { id: id('Me') }, ctx(T0));
+  assert.equal(s.mode, 'solo', 'starting the room alone is solo');
+  for (const g of ['F', 'C', 'B', 'D', 'F-', 'C+', 'B-', 'A-', 'D+', 'B+', 'D-', 'Q']) {
+    const t = toTurn(s, ctx);
+    room.answer(s, { id: id('Me'), text: g }, ctx(t + 100));
+  }
+  const t = toTurn(s, ctx);
+  room.answer(s, { id: id('Me'), text: 'drop' }, ctx(t + 100));
+  room.tick(s, ctx(s.stage.until));
+  assert.equal(s.stage.kind, 'round');
+  assert.equal(s.stage.reason, 'cleared');
+  assert.equal(s.stage.until - s.stage.from, R.soloClearedMs);
+  room.tick(s, ctx(s.stage.until));
+  assert.equal(s.qi, 1);
+  toTurn(s, ctx);
+  assert.equal(room.skip(s, { id: id('Me') }, ctx(s.stage.from + 100)).changed, true);
+  assert.equal(s.stage.kind, 'round');
+  assert.equal(s.stage.reason, 'skipped');
+  assert.equal(s.stage.final, true);
+  assert.equal(s.seats[0].hearts, 2);
+});

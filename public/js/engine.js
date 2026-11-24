@@ -14,6 +14,7 @@ export const RULES = {
   hearts: 2,
   maxCircles: 5, // only for anything-goes questions, which never run out of answers
   soloMaxAnswers: 30,
+  soloClearedMs: 2200, // solo: a cleared board flashes by and the next question starts
   introMs: 2800,
   hitMs: 1300,
   bigHitMs: 1800,
@@ -156,7 +157,7 @@ export function start(s, { id, solo = false }, ctx) {
   if (s.phase !== 'lobby') return { error: 'A game is already running' };
   if (!member(s, id)) return { error: 'Join the room first' };
   const players = solo ? s.roster.filter((p) => p.id === id) : s.roster.filter((p) => p.id === id || isHere(ctx.online, p.id, ctx.now)).slice(0, RULES.maxSeats);
-  s.mode = solo ? 'solo' : 'room';
+  s.mode = solo || players.length === 1 ? 'solo' : 'room'; // alone in the room plays solo too
   s.log = [];
   s.phase = 'game';
   s.game += 1;
@@ -307,8 +308,9 @@ function buildReveal(q, round) {
 
 function endRound(s, plan, from, ctx) {
   const failed = s.round.failed.slice();
+  const hold = s.mode === 'solo' && plan.reason === 'cleared' && !plan.final ? RULES.soloClearedMs : RULES.roundMs;
   s.stage = {
-    kind: 'round', from, until: from + RULES.roundMs, reason: plan.reason, final: plan.final, seat: plan.seat, failed,
+    kind: 'round', from, until: from + hold, reason: plan.reason, final: plan.final, seat: plan.seat, failed,
     reveal: buildReveal(ctx.bank[s.qi], s.round),
   };
   pushEvent(s, from, { type: 'round', reason: plan.reason });
@@ -401,6 +403,16 @@ export function tick(s, ctx) {
   return changed;
 }
 
+/** Solo: give up on this question and go to the next one. No penalty. */
+export function skip(s, { id }, ctx) {
+  const st = s.stage;
+  if (s.mode !== 'solo' || s.phase !== 'game' || s.seats[0]?.id !== id) return { changed: false };
+  if (!st || !['intro', 'turn', 'resolve'].includes(st.kind)) return { changed: false };
+  s.round.turns += 1;
+  endRound(s, endPlan(s, 'skipped', ctx), ctx.now, ctx);
+  return { changed: true };
+}
+
 /** Let anyone in the room move past the recap, the insane reveal or the results early. */
 export function hurry(s, { id, kind }, ctx) {
   const st = s.stage;
@@ -431,7 +443,7 @@ export function takeOver(s, ctx) {
 /** Test switch: shorter timers so automated games run quickly. */
 export function speedUp(k) {
   RULES.turnMs = RULES.turnMs.map((ms) => Math.round(ms * k));
-  for (const key of ['introMs', 'hitMs', 'bigHitMs', 'missMs', 'roundMs', 'roundMinMs', 'goneMs']) RULES[key] = Math.round(RULES[key] * k);
+  for (const key of ['introMs', 'hitMs', 'bigHitMs', 'missMs', 'roundMs', 'roundMinMs', 'goneMs', 'soloClearedMs']) RULES[key] = Math.round(RULES[key] * k);
 }
 
 /** Survivors first, then whoever lasted longest. Players knocked out in the same question tie. */
