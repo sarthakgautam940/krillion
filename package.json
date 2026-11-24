@@ -1,0 +1,9 @@
+{
+  "name": "yo-uncrillion",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node dev/server.mjs",
+    "test": "node --test test/*.test.js"
+  }
+}

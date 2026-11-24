@@ -46,7 +46,7 @@ export class Sound {
     osc.stop(t + dur + 0.05);
   }
 
-  noise({ at = 0, dur = 0.3, vol = 0.2, filter = 'lowpass', f = 1200, to = 0, q = 0.8 }) {
+  noise({ at = 0, dur = 0.3, vol = 0.2, filter = 'lowpass', f = 1200, to = 0, q = 0.8, attack = 0.012 }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime + at;
     const src = this.ctx.createBufferSource();
@@ -58,8 +58,8 @@ export class Sound {
     flt.frequency.setValueAtTime(f, t);
     if (to) flt.frequency.exponentialRampToValueAtTime(to, t + dur);
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(vol, t + 0.012);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    gain.gain.exponentialRampToValueAtTime(vol, t + attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(dur, attack + 0.02));
     src.connect(flt).connect(gain).connect(this.out);
     src.start(t, Math.random());
     src.stop(t + dur + 0.05);
@@ -100,6 +100,14 @@ export class Sound {
   fanfare() {
     [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => this.tone({ type: 'triangle', f, at: i * 0.13, dur: 0.5, vol: 0.12 }));
     [261.63, 329.63, 392].forEach((f) => this.tone({ type: 'sawtooth', f, at: 0.52, dur: 1.1, vol: 0.035 }));
+  }
+
+  /** Time slowing down: a falling tape-stop drone, two heartbeats and a swell into the hit. */
+  slowmo(seconds) {
+    this.tone({ type: 'sawtooth', f: 240, to: 28, dur: seconds, vol: 0.07, attack: 0.02 });
+    this.tone({ type: 'sine', f: 95, to: 38, dur: 0.38, vol: 0.5 });
+    this.tone({ type: 'sine', f: 85, to: 34, at: seconds * 0.48, dur: 0.34, vol: 0.42 });
+    this.noise({ dur: seconds + 0.05, vol: 0.22, filter: 'bandpass', f: 180, to: 5200, q: 1.1, attack: seconds * 0.95 });
   }
 
   insaneImpact() {

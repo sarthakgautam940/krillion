@@ -9,6 +9,8 @@ export class FX {
     this.shards = [];
     this.rings = [];
     this.frame = 0;
+    this.timeScale = 1;
+    this.ramping = null;
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -60,18 +62,32 @@ export class FX {
     this.rings.length = 0;
   }
 
+  /** Slow time down or speed it back up. ease 'in' starts gently and finishes fast. */
+  ramp(to, ms, ease = 'out') {
+    this.ramping = { from: this.timeScale, to, start: performance.now(), ms: Math.max(1, ms), ease };
+    this.run();
+  }
+
   run() {
     if (!this.frame) this.frame = requestAnimationFrame(() => this.step());
   }
 
   step() {
     const { g, dpr } = this;
+    if (this.ramping) {
+      const r = this.ramping;
+      const k = Math.min(1, (performance.now() - r.start) / r.ms);
+      const eased = r.ease === 'in' ? k ** 3 : 1 - (1 - k) ** 3;
+      this.timeScale = r.from + (r.to - r.from) * eased;
+      if (k >= 1) this.ramping = null;
+    }
+    const ts = this.timeScale;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, this.canvas.width, this.canvas.height);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     this.rings = this.rings.filter((r) => {
-      r.life -= 1;
+      r.life -= ts;
       const t = 1 - r.life / r.max;
       const ease = 1 - (1 - t) ** 3;
       g.globalAlpha = Math.max(0, 1 - t);
@@ -84,12 +100,12 @@ export class FX {
     });
 
     this.shards = this.shards.filter((s) => {
-      s.life -= 1;
-      s.vy += s.g;
-      s.vx *= 0.985;
-      s.x += s.vx;
-      s.y += s.vy;
-      s.rot += s.vr;
+      s.life -= ts;
+      s.vy += s.g * ts;
+      s.vx *= 0.985 ** ts;
+      s.x += s.vx * ts;
+      s.y += s.vy * ts;
+      s.rot += s.vr * ts;
       g.globalAlpha = Math.min(1, (s.life / s.max) * 1.6);
       g.fillStyle = s.color;
       g.save();
@@ -111,7 +127,7 @@ export class FX {
 
     g.globalAlpha = 1;
     this.frame = 0;
-    if (this.shards.length || this.rings.length) this.run();
+    if (this.shards.length || this.rings.length || this.ramping) this.run();
   }
 }
 

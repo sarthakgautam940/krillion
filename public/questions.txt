@@ -1,4 +1,4 @@
-# Lore Check question bank
+# Yo UnCrillion question bank
 #
 # Add a question:
 #   1. Write the question on its own line.
@@ -6,9 +6,9 @@
 #   3. Spellings of the SAME answer:      Gaga / Gaga Pit / Gagaball
 #      (commas separate different answers, slashes join spellings of one answer)
 #
-# Tiers and points
-#   Plankton 10, Too Clever 15, Schooler 30, Rare 60, Deep Cut 85, One in a Krillion 100
-#   Insane 250   stops the game for the big reveal
+# Rarities, most common to rarest (rarity is just for show, the last one alive wins)
+#   Plankton, Too Clever, Schooler, Rare, Deep Cut, One in a Krillion
+#   Insane   stops the game for the big reveal
 #
 # Extras
 #   Anything else: One in a Krillion   accepts any real looking answer at that tier
@@ -45,7 +45,7 @@ One in a Krillion: Jo, 5 / Five
 
 
 Worst teachers
-Insane: Odell / O'Dell / Odel / Odelle / Grant Odell / Grand Odell, Nash, Sciarrino / Scenario / Sceranno / Sciarino / Scerano / Scarrino / Sharino, Grant / Grand, Lakey / Lakie / Laky / Lakee, Oliver / Olliver / Olivar
+Insane: Odell / O'Dell / Odel / Odelle / Grant / Grand / Grant Odell / Grand Odell, Nash, Sciarrino / Scenario / Sceranno / Sciarino / Scerano / Scarrino / Sharino, Lakey / Lakie / Laky / Lakee, Oliver / Olliver / Olivar
 Too Clever: Jackson / Jakson, Marquis / Marques / Marquise / Markis
 Schooler: Norman / Normen / Norm
 Anything else: One in a Krillion

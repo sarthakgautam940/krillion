@@ -2,6 +2,7 @@
 import { keyOf, squash, distance, prettify } from './text.js';
 import { buildBlock, isBlocked, gibberishReason } from './filters.js';
 
+// In the live room rarity is flavor: last one alive wins. Points only count in solo.
 export const TIERS = [
   { id: 'plankton', name: 'Plankton', points: 10 },
   { id: 'clever', name: 'Too Clever', points: 15 },
@@ -125,8 +126,8 @@ function findGroup(q, key) {
 }
 
 /**
- * Judge an answer. `round.used` maps group ids to the entry that claimed them and
- * `round.free` lists free-form answers already accepted on an "anything goes" question.
+ * Judge an answer. `round.used` is an object mapping group ids to the entry that claimed them
+ * and `round.free` lists free-form answers already accepted on an "anything goes" question.
  *   { kind: 'empty' | 'blocked' | 'random' | 'miss' }
  *   { kind: 'used', by }            already said, `by` is the seat that said it
  *   { kind: 'hit', group, key }     new answer; group.tier says how rare it is
@@ -140,7 +141,7 @@ export function judge(q, raw, round) {
 
   const group = findGroup(q, key);
   if (group) {
-    const prior = round.used.get(group.id);
+    const prior = round.used[group.id];
     return prior ? { kind: 'used', by: prior.seat } : { kind: 'hit', group, key };
   }
   if (!q.wildcard) return { kind: 'miss' };

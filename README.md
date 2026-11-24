@@ -1,27 +1,31 @@
-# Lore Check
+# Yo UnCrillion
 
-A pass and play answer game for our group. Everyone takes turns on one screen naming answers to a question before the timer bar runs out. Rarer answers score more.
+Our live answer game. Open the link, type your name, and you are in the room. When everyone is in, anyone taps Start.
 
-## How a game goes
+There is no server and nothing to set up. Phones talk through public MQTT relays, the same way spelling-race does. The first player in the room hosts: their phone runs the game and every other phone follows it. If the host leaves, the next player takes over and the game carries on.
 
-- The bar drains from blue to yellow to red. Run out and you lose one of your two hearts.
-- Every turn needs a new answer. Wrong or repeated answers just cost you time.
-- A question ends when every answer has been found, after three full laps, or when the turn comes back around to someone who already missed it. That player starts the next question.
-- Lose every heart and you are out. Highest score at the end wins.
+## The live room
 
-| Rarity | Points |
-| --- | --- |
-| Plankton | 10 |
-| Too Clever | 15 |
-| Schooler | 30 |
-| Rare | 60 |
-| Deep Cut | 85 |
-| One in a Krillion | 100 |
-| Insane | 250, plus the full screen reveal |
+- Everyone starts with two hearts. Players take turns in a circle.
+- It is you against the timer. Wrong guesses cost nothing. If the bar runs out before you give an accepted answer, you lose a heart.
+- A question ends at the end of a circle in which anyone ran out of time, so nobody gets an extra turn. It also ends when every answer has been found, or when a new circle would start with fewer answers left than players.
+- The next question starts with the next player in line. Players with no hearts left are out and skipped.
+- The last one alive wins. If the questions run out first, they start over in overtime with shorter turns.
+- Rarity is just for show here. An insane answer slows the room down and plays the full reveal on every phone.
+- A phone that drops is skipped until it comes back. Gone for 45 seconds mid game and that player is out.
+
+## Solo
+
+Tap Play solo on the front screen.
+
+- Every accepted answer resets your timer. When time runs out, the next question starts. A cleared board moves on by itself.
+- Points by rarity: Plankton 10, Too Clever 15, Schooler 30, Rare 60, Deep Cut 85, One in a Krillion 100, Insane 250.
+- After all four questions you see your score and your high score on that phone.
+- Copy my answers puts everything you typed on your clipboard, grouped by question, including the answers that were not on the board. Paste it to Claude to grow the bank.
 
 ## Adding questions
 
-Everything lives in [`questions.txt`](questions.txt). Edit it on GitHub, commit, and Vercel redeploys in a few seconds.
+Everything lives in [`public/questions.txt`](public/questions.txt). Edit it on GitHub, commit, and Vercel redeploys.
 
 ```text
 Worst cafeteria food
@@ -34,25 +38,27 @@ One in a Krillion: The Milk
 - First line is the question, then one line per rarity.
 - Commas separate different answers. Slashes join spellings of the same answer, so saying one uses up all of them.
 - Capitals, apostrophes, "the", "Mr" and "Mrs", plurals and small typos are matched automatically.
-- `Insane:` answers stop the game for the big reveal.
+- `Insane:` answers trigger the big reveal.
 - `Anything else: One in a Krillion` accepts any real looking answer at that rarity and rejects keyboard mashing.
 - `Block: word, word` never accepts those words. `profanity` and `religion` block whole lists.
 
 ## Running it locally
 
-It is a static site with no build step. Serve the folder with anything, for example:
-
 ```bash
-python3 -m http.server 8000
+npm run dev
 ```
 
-Then open http://localhost:8000. Opening `index.html` straight from disk will not load the questions.
+Open http://localhost:3000. To test the room without the public relays, run any MQTT broker that accepts WebSockets and add `?broker=ws://localhost:9001` to the address. `?fast=1` shortens every timer for testing, and `?debug=1` logs what the relay is doing.
+
+```bash
+npm test
+```
 
 ## Files
 
-- `questions.txt` is the question bank
-- `js/bank.js` reads the bank and judges answers
-- `js/game.js` has the turn, heart and scoring rules
-- `js/filters.js` blocks words and spots keyboard mashing
-- `js/main.js` runs the screens, timer and animations
-- `js/audio.js` synthesizes every sound, so there are no audio files
+- `public/js/engine.js` holds the rules: turns, circles, hearts, solo scoring and when a question ends
+- `public/js/relay.js` is the connection layer, ported from spelling-race
+- `public/js/main.js` joins the room, hosts when it is this phone's turn to, and draws everything
+- `public/js/bank.js` reads `questions.txt` and judges answers
+- `public/js/filters.js` blocks words and spots keyboard mashing
+- `public/js/insane.js` is the slow motion insane reveal
